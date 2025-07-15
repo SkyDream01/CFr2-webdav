@@ -99,17 +99,29 @@ async function handleGet(request: Request, bucket: R2Bucket, bucketName: string)
 async function handleDirectory(bucket: R2Bucket, resource_path: string, bucketName: string): Promise<Response> {
   let items = [];
 
+  // 如果不是根目录，添加返回上一级的链接
   if (resource_path !== "") {
     items.push({ name: "📁 ..", href: "../" });
   }
 
   try {
-    for await (const object of listAll(bucket, resource_path)) {
-      if (object.key === resource_path) continue;
-      const isDirectory = object.customMetadata?.resourcetype === "collection";
+    // 使用 delimiter:'/' 来区分文件和目录
+    const listing = await bucket.list({ prefix: resource_path, delimiter: '/' });
+
+    // 处理目录 (delimitedPrefixes)
+    for (const dir of listing.delimitedPrefixes) {
+      // 从完整路径中提取目录名
+      const displayName = dir.split('/').filter(Boolean).pop() || dir;
+      items.push({ name: `📁 ${displayName}`, href: `/${dir}` });
+    }
+
+    // 处理文件 (objects)
+    for (const object of listing.objects) {
+      // 忽略代表当前目录自身的空对象
+      if (object.key === resource_path || object.key.endsWith('/')) continue; 
+      // 从完整路径中提取文件名
       const displayName = object.key.split('/').pop() || object.key;
-      const href = `/${object.key}${isDirectory ? "/" : ""}`;
-      items.push({ name: `${isDirectory ? '📁 ' : '📄 '}${displayName}`, href });
+      items.push({ name: `📄 ${displayName}`, href: `/${object.key}` });
     }
   } catch (error) { 
     const err = error as Error;
@@ -184,7 +196,7 @@ async function handleDelete(request: Request, bucket: R2Bucket): Promise<Respons
     logger.error("Error deleting object:", err.message);
     return new Response(generateErrorHTML("Error deleting file", err.message), {
       status: 500,
-      headers: { "Content-Type": "text/html; charset=utf-8" }
+      headers: { "Content-Type": "text/html; charset=-8" }
     });
   }
 }
